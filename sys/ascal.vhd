@@ -129,6 +129,13 @@ ENTITY ascal IS
 		IHRES        : natural RANGE 1 TO 2048 :=2048;
 		N_DW         : natural RANGE 64 TO 128 := 128;
 		N_AW         : natural RANGE 8 TO 32 := 32;
+		
+		-- Sinden Lightgun support border
+                BORDER_H     : natural := 20;
+                BORDER_V     : natural := 20;
+                BORDER_H2    : natural := 28;
+                BORDER_V2    : natural := 28;
+				
 		N_BURST      : natural := 256 -- 256 bytes per burst
 		);
 	PORT (
@@ -222,6 +229,7 @@ ENTITY ascal IS
 		vmax    : IN natural RANGE 0 TO 4095; -- 0 <= vmin < vmax < vdisp
 		vrr     : IN std_logic := '0';
 		vrrmax  : IN natural RANGE 0 TO 4095 := 0;
+		swblack : IN std_logic := '0';        -- will output 3 black frame on every resolution switch
 
 		-- Scaler format. 00=16bpp 565, 01=24bpp 10=32bpp
 		format  : IN unsigned(1 DOWNTO 0) :="01";
@@ -473,7 +481,7 @@ ARCHITECTURE rtl OF ascal IS
 	ATTRIBUTE ramstyle OF o_hfrac : SIGNAL IS "logic"; -- avoid blockram shift register
 
 	SIGNAL o_hacc,o_hacc_ini,o_hacc_next,o_vacc,o_vacc_next,o_vacc_ini : natural RANGE 0 TO 4*OHRES-1;
-	SIGNAL o_hsv,o_vsv,o_dev,o_pev,o_end : unsigned(0 TO 11);
+	SIGNAL o_hsv,o_vsv,o_dev,o_pev,o_bzl,o_end : unsigned(0 TO 11);
 	SIGNAL o_hsp,o_vss : std_logic;
 	SIGNAL o_vcarrym,o_prim : boolean;
 	SIGNAL o_read,o_read_pre : std_logic;
@@ -510,6 +518,7 @@ ARCHITECTURE rtl OF ascal IS
 	SIGNAL o_divrun : std_logic;
 	SIGNAL o_hacpt,o_vacpt : unsigned(11 DOWNTO 0);
 	SIGNAL o_vacptl : unsigned(1 DOWNTO 0);
+	signal o_newres : integer range 0 to 3;
 
 	-----------------------------------------------------------------------------
 	FUNCTION shift_ishift(shift : unsigned(0 TO 119);
@@ -1846,8 +1855,8 @@ BEGIN
 			o_vsstart<=vsstart; -- <ASYNC> ?
 			o_vsend  <=vsend; -- <ASYNC> ?
 			o_vdisp  <=vdisp; -- <ASYNC> ?
-			o_vmin   <=vmin; -- <ASYNC> ?
-			o_vmax   <=vmax; -- <ASYNC> ?
+			o_vmin   <=vmin + BORDER_H2; -- <ASYNC> ?
+			o_vmax   <=vmax - BORDER_H2; -- <ASYNC> ?
 
 			o_hsize  <=o_hmax - o_hmin + 1;
 			o_vsize  <=o_vmax - o_vmin + 1;
@@ -1890,6 +1899,14 @@ BEGIN
 				o_ivsize<=i_vrsize; -- <ASYNC>
 				o_hdown<=i_hdown; -- <ASYNC>
 				o_vdown<=i_vdown; -- <ASYNC>
+
+				IF (o_newres > 0) then
+					o_newres <= o_newres- 1;
+				END IF;
+			END IF;
+
+			IF (swblack = '1' and o_fb_ena = '0' and (o_ihsize /= i_hrsize or o_ivsize /= i_vrsize)) then
+				o_newres <= 3;
 			END IF;
 
 			-- Simultaneous change of input and output framebuffers
@@ -2218,6 +2235,9 @@ BEGIN
 					-- 8bpp indexed colour mode
 					hpix_v:=(r=>o_fb_pal_dr(23 DOWNTO 16),g=>o_fb_pal_dr(15 DOWNTO 8),
 									 b=>o_fb_pal_dr(7 DOWNTO 0));
+				END IF;
+				IF (o_newres > 0) then
+					hpix_v := (others => (others => '0'));
 				END IF;
 				o_hpix0<=hpix_v;
 				o_hpix1<=o_hpix0;
@@ -2678,12 +2698,17 @@ BEGIN
 				o_vsv(0)<=to_std_logic((o_vcpt=o_vsstart AND o_hcpt>=o_hsstart) OR
 											  (o_vcpt>o_vsstart AND o_vcpt<o_vsend) OR
 											  (o_vcpt=o_vsend   AND o_hcpt<o_hsstart));
+											  
+				o_bzl(0)<=to_std_logic(o_hcpt>=o_hmin-BORDER_H AND o_hcpt<=o_hmax+BORDER_H AND
+                                       o_vcpt>=o_vmin-BORDER_V AND o_vcpt<=o_vmax+BORDER_V);
+                                                
 
 				o_vss<=to_std_logic(o_vcpt_pre2>=o_vmin AND o_vcpt_pre2<=o_vmax);
 				o_hsv(1 TO 11)<=o_hsv(0 TO 10);
 				o_vsv(1 TO 11)<=o_vsv(0 TO 10);
 				o_dev(1 TO 11)<=o_dev(0 TO 10);
 				o_pev(1 TO 11)<=o_pev(0 TO 10);
+				o_bzl(1 TO 11)<=o_bzl(0 TO 10);
 				o_end(1 TO 11)<=o_end(0 TO 10);
 
 				IF o_run='0' THEN
@@ -2691,6 +2716,7 @@ BEGIN
 					o_vsv(2)<='0';
 					o_dev(2)<='0';
 					o_pev(2)<='0';
+					o_bzl(2)<='0';
 					o_end(2)<='0';
 				END IF;
 			END IF;
@@ -2888,10 +2914,16 @@ BEGIN
 				END CASE;
 
 				IF o_pev(11)='0' THEN
+				   IF o_bzl(11)='1' THEN
+						o_r<=x"FF";
+						o_g<=x"FF";
+						o_b<=x"FF";
+					ELSE
 					o_r<=o_border(23 DOWNTO 16); -- Copy border colour
 					o_g<=o_border(15 DOWNTO 8);
 					o_b<=o_border(7  DOWNTO 0);
 				END IF;
+			END IF;	
 
 				----------------------------------------------------
 			END IF;
