@@ -57,7 +57,7 @@ module emu
 	input  [11:0] HDMI_WIDTH,
 	input  [11:0] HDMI_HEIGHT,
 	output        HDMI_FREEZE,
-	output        gun_border_en,
+	output        GUN_BORDER_EN,
 
 `ifdef MISTER_FB
 	// Use framebuffer in DDRAM
@@ -191,7 +191,7 @@ assign VGA_SCALER= 0;
 assign VGA_DISABLE = 0;
 assign HDMI_FREEZE = 0;
 assign FB_FORCE_BLANK = 0;
-assign gun_border_en = status[47];
+assign GUN_BORDER_EN = status[47];
 
 wire       vcrop_en = status[50];
 wire [3:0] vcopt    = status[54:51];
